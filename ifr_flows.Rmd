@@ -1,0 +1,444 @@
+---
+title: "IFR Flows"
+author: "Enrico Spinielli"
+date: "August 19, 2016"
+output: 
+  pdf_document: 
+    highlight: haddock
+    number_sections: yes
+    toc: yes
+documentclass: article
+classoption: a4paper
+bibliography: biblio.bib
+---
+# Abstract
+
+This document describes the assumptions, shortcuts and steps taken to prepare the
+data used the circular plots of the flow of flights entering/exiting and within
+the airspace of Eurocontrol's Member States for the years 2001-2015 as displayed
+on PRU's website `[`[1][extra]`]`, `[`[2][intra]`]`.
+
+# Introduction
+
+The studies for the [flow of flights entering/exiting][extra] and [within][intra]
+the airspace of Eurocontrol's Member States is inspired by Sander, Abel and
+Bauer's website [see @global-refugees] and its companion working paper
+[see @glob-migration-viz].
+
+The underlying dataset is coming from the PRU's Analytical database
+and takes into account all [IFR flights][ifr] in the period 2001-2016
+as recorded by Eurocontrol's [Network Manager][nm] (formely [CFMU][cfmu]).
+
+In the following chapters we will describe how we extracted the flows, what we filtered,
+the amount and impact of the filters, the compromises we have taken when mapping
+flights to countries and countries to regions and more.
+
+This is a work in progress so throughout this document we will mark what needs
+to be tackled soon[^soon] with `TODO` and areas of further
+investigation[^deeper] with `RSRC`.
+
+[^soon]: The definition of *soon* is intentionally omitted to let us free to decide ;-)
+
+[^deeper]: These are subjects that could potentially (typically because of our lack
+  of knowledge) require a substantial amount of time/resources.
+
+
+# The (nasty) details
+
+## Yearly city pair flows 
+
+The following query extracts city pair flows from the archived flight details in PRU's
+analytical database[^fp].
+
+[^fp]: We have access to flight details (and more) since $27^{th}$ Apr 1995
+  when the flight plan reception and processing for France, Germany and the
+  Benelux States was handled by the then new Central Flowm Management Unit.
+
+```{mysql, eval=FALSE}
+set worksheetname Flows;
+SET SQLFORMAT csv;
+
+SELECT
+  TO_CHAR(F.LOBT, 'YYYY') AS YEAR
+  , COUNT(FLT_UID) NB_OF_FLIGHT
+  , A1.EC_ISO_CT_CODE DEP_ISO_COUNTRY_CODE
+  , A2.EC_ISO_CT_CODE DES_ISO_COUNTRY_CODE
+FROM
+    SWH_FCT.FAC_FLIGHT F
+  , SWH_FCT.DIM_AIRPORT A1
+  , SWH_FCT.DIM_AIRPORT A2
+  , SWH_FCT.DIM_AIRCRAFT_TYPE AC
+WHERE
+    A1.SK_AP_ID = F.SK_ADEP_ID
+  AND
+    A2.SK_AP_ID   = F.SK_ADES_ID
+  AND
+    F.LOBT       >= '01-JAN-2001'
+  AND
+    F.LOBT        < '01-JAN-2016'
+  AND
+    (A1.EC_ISO_CT_CODE != '##' AND A2.EC_ISO_CT_CODE != '##')
+  AND
+    F.AIRCRAFT_TYPE_ICAO_ID = AC.ICAO_TYPE_CODE
+  AND
+    (F.ICAO_FLT_TYPE != 'M')
+  AND
+    SUBSTR(AC.ICAO_DESC,1,1) != 'H'
+GROUP BY
+    A1.EC_ISO_CT_CODE
+  , A1.ISO_CT_CODE
+  , A2.EC_ISO_CT_CODE
+  , TO_CHAR(F.LOBT,'YYYY');
+```
+
+The flollowing filters have been applied in the query above:
+
+* flights without an ISO2 country code for either the departing or arriving airport have been excluded:
+  
+    ```{mysql, eval=FALSE}
+    ...
+    AND (A1.EC_ISO_CT_CODE != '##' AND A2.EC_ISO_CT_CODE != '##')
+    ...
+    ```
+
+* military and helicopter flights have been excluded:
+
+    ```{mysql, eval=FALSE}
+    ...
+    AND (F.ICAO_FLT_TYPE != 'M')
+    AND SUBSTR(AC.ICAO_DESC,1,1) != 'H'
+    ...
+    ```
+
+
+The following table summarises the amount of filtered out flights compared to the total per year.
+
+| Year | No ISO code | Military | Helicopter |
+|------|-------------|----------|------------|
+
+
+* **TODO** fill the table above with the result of the queries we run in the past
+  in order to justify the next paragraph.
+
+Given the filtered out amounts are tiny compared with the relevant totals, it is
+justified to discard them because they are not going to distort the shape of the flows
+once we aggregate the flights per country and region.
+
+
+
+## Preprocessing
+
+The raw data is preprocessed via the script `preprocessRawData.R`
+
+```{r cache=FALSE, echo=FALSE, tidy.opts=list(blank=FALSE, width.cutoff=50)}
+knitr::read_chunk('R/preprocessRawData.R')
+```
+
+We define the range of years we will process:
+```{r configuration, eval=FALSE}
+```
+
+and filter the dataset accordingly:
+```{r filter-years, eval=FALSE}
+```
+
+
+Then columns names are redefined:
+```{r rename-columns, eval=FALSE}
+```
+
+Let's make sure the dataset is sound:
+
+* `year` is within the 2001 - 2015 range
+* origin and destinations are not undefined, (but "NA" is a valid value for Namibia)
+
+```{r check-invariants, eval=FALSE}
+```
+
+Also due to our mapping of old ISO2 codes from our DB to more *modern* ones from the relevant year.
+This is the case for Serbia (`CS` to `RS`) and Martinique/Guadaloupe (`XF` to `MQ`)
+
+```{r fix-iso-codes, eval=FALSE}
+```
+
+* `TODO` check ISO codes for Montenegro (ME since 2006), Serbia (RS since 2006),
+  Congo (CD, since 1997), YU (Yugoslavia, till 2003-07), ZR (Zaire, till 1995-07)
+
+* `TODO`: check what happens for
+  [Dutch Antilles](https://en.wikipedia.org/wiki/Netherlands_Antilles),
+  France's territories outside Europe (St Pierre's aiport,
+  LFVP, in the oversea community of Saint-Pierre and Miquelon; or
+  [the ones in the French Guiana](https://en.wikipedia.org/wiki/List_of_airports_in_French_Guiana),
+  ...)
+
+* `RSRC` check how ISO 3166-2 codes evolved in time and how that
+  is handled in the `EC_ISO_CT_CODE` column of the `SWH_FCT.DIM_AIRPORT` table.
+  The [relevant page on Wikipedia][iso2c] provides some info on the time when
+  codes changed.
+
+* `RSRC` if we are going to map the flows, it could be interesting to try to find
+  shapefiles for how countries did split, reshaped, ...
+
+
+Finally we save to output filename for further use.
+
+```{r file-names, eval=FALSE}
+```
+```{r save-preprocessed, eval=FALSE}
+```
+
+```{r eval=FALSE, echo=FALSE}
+source("R/preprocessRawData.R")
+```
+
+
+
+## Data transformation for circular plot
+
+The circular plot clusters countries into regions.
+Luckily the [`countrycode`][ccode] R package converts country codes into
+one of eleven coding schemes including regional grouping.
+A recently added feature allows to provide a dictionary for custom mappings:
+we can hence use one for the our aviation data[^ccavia].
+
+[^ccavia]: the README from the package repository describes this feature
+  using a dataset we provided as a [contribution to the package][ccodepr]
+
+```{r cache=FALSE, echo=FALSE, tidy.opts=list(blank=FALSE, width.cutoff=50)}
+knitr::read_chunk('R/mapToRegions.R')
+```
+
+
+### Preliminary fixes
+
+We start by reading the previously processed data,
+
+```{r read-preprocessed-data, eval=FALSE}
+```
+
+
+We then (arbitrarily) assign a UN region to countries that do not have one,
+i.e. Taiwan (ISO 3166-2: `TW`) and 
+the British Indian Ocean Territory (ISO 3166-2: `IO`).
+
+```{r fix-missing-un-region, eval=FALSE}
+```
+
+### Assign region to country
+
+Assign regions as per Eurocontrol's PRU classification
+
+| PRU's region | Countries   |
+|--------------|-------------|
+|              |             |
+
+* `TODO`: generate a table with the mapping, possibly using `kable`,
+  see [here](http://stackoverflow.com/a/19859769/963575)
+
+
+```{r classify-pru-regions, eval=FALSE}
+```
+
+
+### Split dataset: intra and extra Eurocontrol
+We have 3 classes of flows:
+
+1. Flows within Eurocontrol area, i.e. flights where both departure and destination airports are
+   in Eurocontrol Member States's territory.
+1. Overfling flows, i.e. flights originating and landing in non-Member States
+1. Flows in/out of Eurocontrol area, i.e. flights where either departure or destination airport is
+   in a Member State.
+
+Using the following tables (IN = inside Eurocontrol, OUT = outside Eurocontrol)
+
+Departure AD | Destination AD | Flow type       | Description
+-------------|----------------|-----------------|------------------
+  IN         |  IN            | internal        | Internal flows
+  IN         |  OUT           | outbound        | Outflying flows
+  OUT        |  IN            | inbound         | Inflying flows
+  OUT        |  OUT           | overflying      | Overflying flows
+
+we can classify the flows
+
+```{r classify-flows, eval=FALSE}
+```
+
+We now split the dataset in two: `intra-flows` contains all `internal` flows;
+`extra-flows` all the rest (i.e. we will not separate the overflying flow from
+In/Outflying ones.)
+
+```{r intra-flows, eval=FALSE}
+```
+
+Furthermore we map `intra-flows` regions according to ESRA08 classification
+from STATFOR [see pag 57 of @statfor-medium-2016]:
+```{r classify-intra-statfor, eval=FALSE}
+```
+
+Save the internal and external flows on disk:
+
+```{r save-intra-flows, eval=FALSE}
+```
+
+
+### Refine Extra Flows
+
+In order to reduce the number of regions in the final circular plot,
+we reassign the regions to some extra-European flows.
+So `Russia` and `China` go to `Asia` rather than having their own region.
+We also merge the whole Northern, Central and Souther America in one `America` region.
+
+```{r extra-flow-regions-remapping, eval=FALSE}
+```
+
+Save the external flows on disk:
+```{r save-extra-flows, eval=FALSE}
+```
+
+```{r eval=FALSE, echo=FALSE}
+source("R/mapToRegions.R")
+```
+
+
+
+## Analysis
+
+* `RSRC`: analyse the flows time series.
+Summaries:
+
+```{r, echo=FALSE, eval=FALSE}
+extra_stats <- extra_flows %>%
+  mutate(flow_name = ifelse(originregion_name < destinationregion_name, 
+                            paste0(originregion_name, "-", destinationregion_name),
+                            paste0(destinationregion_name, "-", originregion_name))) %>%
+  select(year, flights, flow_name) %>%
+  group_by(year, flow_name) %>%
+  summarise(movements=sum(flights)) %>%
+  arrange(desc(movements)) %>%
+  spread(year, movements, fill = 0)
+```
+
+List of countries contributing the major movements:
+
+```{r, echo=FALSE, eval=FALSE}
+# limit to 2014 (for now)
+extra_movements <- extra_flows %>% 
+  # exclude overflying flows
+  filter(originregion_name == 'Eurocontrol' |
+           destinationregion_name == 'Eurocontrol') %>%
+  select(origin_name, destination_name,
+         originregion_name,
+         destinationregion_name,
+         countryflow_2014) %>%
+  mutate(flow = ifelse(originregion_name != 'Eurocontrol',
+                       origin_name,
+                       destination_name))
+
+# print 30 biggest contributors
+extra_movements %>% 
+  group_by(flow) %>% 
+  summarise(total = sum(countryflow_2014)) %>%
+  arrange(desc(total)) %>%
+  print(n=30)
+```
+
+
+
+
+
+
+
+
+## Data Preparation for Visualisation 
+
+The [circular plot library[^gmlib]][gmrepo] we use for visualizing the flows of flights
+expects as input preprocessed data ready to plot.
+
+[^gmlib]: This library is an extension of the [chord diagram][chorddia]
+  as made possible by Mike Bostock's [D3.js][d3js].
+
+In this section we explain which are the transformations and support
+files needed. These support files will be *compiled* by the code
+in another repository, [`circflows`][circflows].
+
+We will pick the extra flow dataset but the same set of files is
+produced for the intra flow one.
+
+
+```{r cache=FALSE, echo=FALSE, tidy.opts=list(blank=FALSE, width.cutoff=50)}
+knitr::read_chunk('R/prepareForVizExtra.R')
+```
+
+### Countries to show
+
+We need a file that specifies which countries to show, something like:
+
+```{R, eval=FALSE}
+iso,show (1 = yes; 2 = no)
+US,1
+IN,1
+CN,2
+...
+```
+
+Practically we use a threshold to filter out the countries with small flows because
+they will result in very thin strips that will just clutter the interpretation
+of the flows.
+
+Say we only keep the flows with at least `threshold` flights (in any direction)
+
+Now let's filter out the little flows...
+
+```{r extra-viz-thresholded, eval=FALSE}
+```
+
+* `TODO`: generate country file for intra-flow too. 
+
+
+### Years in the dataset
+
+We need a file listing the years in the dataset
+
+```{r create-years-file, eval=FALSE}
+```
+
+* `TODO`: generate years file for intra-flow too.
+
+
+### Countries and regions in the datasets
+
+We then need to create the files for the countries and the regions present
+in the (now filtered) dataset
+
+```{r create-countries-file, eval=FALSE}
+```
+
+```{r create-regions-file, eval=FALSE}
+
+```
+
+
+```{r eval=FALSE, echo=FALSE}
+source("R/prepareForVizExtra.R")
+```
+
+```{r eval=FALSE, echo=FALSE}
+source("R/prepareForVizIntra.R")
+```
+
+
+# References
+
+
+[cfmu]: <http://www.eurocontrol.int/20-years-central-flow-management> "Central Flow Management - The twenty-year journey"
+[nm]: <https://www.eurocontrol.int/network-manager> "Network Manager"
+[extra]: <http://ansperformance.eu/studies/flows-extra/> "Flows of flights in/out of Europe"
+[intra]: <http://ansperformance.eu/studies/flows-intra/> "Flows of flights within of Europe"
+[iso2c]: <https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2> "ISO 3166-1 alpha-2"
+[ccode]: <https://github.com/vincentarelbundock/countrycode> "R package countrycode"
+[ccodepr]: <https://github.com/vincentarelbundock/countrycode/pull/65> "Aviation extension for countrycode"
+[ifr]: <https://en.wikipedia.org/wiki/Instrument_flight_rules> "IFR Instrumenting Flight Rules"
+[gmrepo]: <https://github.com/null2/globalmigration> "visualization of global migration flows' code repository"
+[d3js]: <https://d3js.org/> "D3: Data Driven Documents"
+[chorddia]: <https://bl.ocks.org/mbostock/4062006> "Chord diagram"
+[circflows]: <https://github.com/espinielli/circflows> "circflows"

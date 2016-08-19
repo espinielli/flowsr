@@ -1,0 +1,38 @@
+---
+title: "European Flights Flows Analysis"
+author: "Enrico Spinielli"
+date: "June 2, 2016"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## External Flight Flows
+
+Read in the city pair flight flows:
+```{r}
+library(readr)
+data_dir = "data/"
+extra_flows_file = "extra-flows.csv"
+
+ef <- read_csv(file = paste(data_dir, extra_flows_file, sep = ""))
+
+library(dplyr)
+extra_flows <- tbl_df(ef)
+rm(ef)
+```
+
+## Exploratory Plots
+
+Faceting horiz bar char of movements per city-pair by `year` (take first 20)
+```{r echo=FALSE}
+howMany <- 20
+pairsPerYY <- extra_flows %>%
+  group_by(year) %>%
+  arrange(flights) %>%
+  top_n(howMany, flights)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
