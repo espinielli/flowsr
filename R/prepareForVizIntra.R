@@ -1,3 +1,5 @@
+library(stringr)
+library(dplyr)
 library(tidyr)
 library(readr)
 
@@ -8,9 +10,10 @@ mydf <- read_csv(str_c(data_dir, intra_flows_file, sep = '/'), na = c(""))
 intra_flows <- tbl_df(mydf)
 rm(mydf)
 
-
-# threshold for filtering out small flows (3650 = flow of 10 flights/day between dep/des country)
-threshold <- 3650 / 2
+# ---- threshold-intra ----
+# threshold for filtering out small flows
+fpd <- 5 # flights per day
+threshold <- 365 * fpd
 
 # ---- create-years-file ----
 intra_years <- intra_flows %>%
@@ -33,7 +36,7 @@ intra_years %>%
 # keep only the years as previously defined, used to generate the list of visible countries
 # CHECK: shouldn't we filter on the sum of both directions?
 intra_flows %<>% 
-  filter(flights > threshold) %>%
+  filter(flights >= threshold) %>%
   filter(year %in% intra_years) %>%
   spread(year, flights, fill=0)
 

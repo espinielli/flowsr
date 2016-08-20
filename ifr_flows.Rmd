@@ -369,9 +369,16 @@ produced for the intra flow one.
 knitr::read_chunk('R/prepareForVizExtra.R')
 ```
 
+
 ### Countries to show
 
-We need a file that specifies which countries to show, something like:
+In order to avoid too small flows in the final visualization we filter out
+all country flows with less that 10 flights per day, i.e. $10 * 365$.
+
+```{r threshold-extra, eval=FALSE}
+```
+
+Then we will then generate a file that specifies which countries to show, something like:
 
 ```{R, eval=FALSE}
 iso,show (1 = yes; 2 = no)
@@ -381,19 +388,11 @@ CN,2
 ...
 ```
 
-Practically we use a threshold to filter out the countries with small flows because
-they will result in very thin strips that will just clutter the interpretation
-of the flows.
-
-Say we only keep the flows with at least `threshold` flights (in any direction)
 
 Now let's filter out the little flows...
 
 ```{r extra-viz-thresholded, eval=FALSE}
 ```
-
-* `TODO`: generate country file for intra-flow too. 
-
 
 ### Years in the dataset
 
